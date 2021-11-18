@@ -49,13 +49,19 @@ namespace PhotoSort
           subIfdDirectory?.GetDescription(ExifDirectoryBase.TagDateTimeOriginal);
 
         var photoDate = ParseExifDate(exifDateTime);
+        if (photoDate == null)
+        {
+          Console.WriteLine("... Skipped: No EXIF date");
+          continue;
+        }
+
         if (photoDate < DateTime.Parse("1980-01-01"))
         {
           Console.WriteLine("... Skipped: File date too old");
           continue;
         }
 
-        var destinationYearMonth = EnsurePath(photoDate);
+        var destinationYearMonth = EnsurePath(photoDate.Value);
         var destinationFile = Path.Combine(destinationYearMonth, info.Name);
         Console.Write($" to '{destinationFile}'... ");
         if (File.Exists(destinationFile))
@@ -81,8 +87,10 @@ namespace PhotoSort
       return destinationYearMonth;
     }
 
-    public DateTime ParseExifDate(string dateStr)
+    public DateTime? ParseExifDate(string dateStr)
     {
+      if (string.IsNullOrWhiteSpace(dateStr))
+        return null;
       var segments = dateStr.Split(" ");
       return DateTime.Parse($"{segments[0].Replace(":", "-")} {segments[1]}");
     }
