@@ -12,6 +12,8 @@ namespace PhotoSort
   {
 
     private readonly string[] ACCEPTED_EXTENSIONS = { ".jpg", ".jpeg" };
+
+    // Possibly unnecessary optimization to avoid IO for ensuring folders
     private HashSet<string> KnownDestinationDirs = new HashSet<string>();
 
     public CommandLineOptions Options { get; set; }
@@ -28,10 +30,11 @@ namespace PhotoSort
 
     public void ProcessChildren(string sourceDir)
     {
-      // foreach (var dir in Directory.EnumerateDirectories(sourceDir))
-      // {
-      //   ProcessChildren(dir);
-      // }
+      foreach (var dir in System.IO.Directory.EnumerateDirectories(sourceDir))
+      {
+        ProcessChildren(dir);
+      }
+
       foreach (var file in System.IO.Directory.EnumerateFiles(sourceDir))
       {
         var info = new FileInfo(file);
