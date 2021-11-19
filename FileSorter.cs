@@ -15,6 +15,7 @@ namespace PhotoSort
 
     // Possibly unnecessary optimization to avoid IO for ensuring folders
     private HashSet<string> KnownDestinationDirs = new HashSet<string>();
+    public string SessionId { get; set; }
 
     public CommandLineOptions Options { get; set; }
 
@@ -25,6 +26,7 @@ namespace PhotoSort
 
     public void Sort()
     {
+      SessionId = Guid.NewGuid().ToString("N");
       ProcessChildren(Options.Source);
     }
 
@@ -38,7 +40,7 @@ namespace PhotoSort
       foreach (var file in System.IO.Directory.EnumerateFiles(sourceDir))
       {
         var info = new FileInfo(file);
-        Console.Write($"{Options.Mode} '{file}'");
+        WriteLog($"{Options.Mode} '{file}'");
 
         if (SkipFile(info)) continue;
 
@@ -51,27 +53,34 @@ namespace PhotoSort
         var photoDate = ParseExifDate(exifDateTime);
         if (photoDate == null)
         {
-          Console.WriteLine("... Skipped: No EXIF date");
+          WriteLog("... Skipped: No EXIF date", true);
           continue;
         }
 
         if (photoDate < DateTime.Parse("1980-01-01"))
         {
-          Console.WriteLine("... Skipped: File date too old");
+          WriteLog("... Skipped: File date too old", true);
           continue;
         }
 
         var destinationYearMonth = EnsurePath(photoDate.Value);
         var destinationFile = Path.Combine(destinationYearMonth, info.Name);
-        Console.Write($" to '{destinationFile}'... ");
+        WriteLog($" to '{destinationFile}'... ");
         if (File.Exists(destinationFile))
         {
-          Console.WriteLine("Skipped: already exists.");
+          WriteLog("Skipped: already exists.", true);
         }
         else
         {
-          info.CopyTo(destinationFile);
-          Console.WriteLine("Done.");
+          if (string.Equals(Options.Mode, "copy", StringComparison.OrdinalIgnoreCase))
+          {
+            info.CopyTo(destinationFile);
+          }
+          else
+          {
+            info.MoveTo(destinationFile);
+          }
+          WriteLog("Done.", true);
         }
       }
     }
@@ -99,10 +108,31 @@ namespace PhotoSort
     {
       if (!ACCEPTED_EXTENSIONS.Contains(info.Extension, StringComparer.OrdinalIgnoreCase))
       {
-        Console.WriteLine($"... Skipped: Unsupported extension: {info.Extension}");
+        WriteLog($"... Skipped: Unsupported extension: {info.Extension}", true);
         return true;
       }
       return false;
+    }
+
+    public void WriteLog(string text, bool endLine = false)
+    {
+      var logFile = Path.Combine(Options.Destination, $"log-{DateTime.Now.ToString("yyyyMMdd_hhmm")}-{SessionId}.log");
+      if (endLine)
+      {
+        Console.WriteLine(text);
+        using (StreamWriter sw = File.AppendText(logFile))
+        {
+          sw.WriteLine(text);
+        }
+      }
+      else
+      {
+        Console.Write(text);
+        using (StreamWriter sw = File.AppendText(logFile))
+        {
+          sw.Write(text);
+        }
+      }
     }
   }
 }
