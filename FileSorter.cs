@@ -11,11 +11,16 @@ namespace PhotoSort
   public class FileSorter
   {
 
+    // TODO: support video files
     private readonly string[] ACCEPTED_EXTENSIONS = { ".jpg", ".jpeg" };
 
     // Possibly unnecessary optimization to avoid IO for ensuring folders
     private HashSet<string> KnownDestinationDirs = new HashSet<string>();
-    public string SessionId { get; set; }
+    public string SessionId { get; private set; }
+    public DateTime SortTime { get; private set; }
+    private List<ProcessedItem> FailedItems = new List<ProcessedItem>(0);
+
+    // TODO: Track count of files found/successfully processed
 
     public CommandLineOptions Options { get; set; }
 
@@ -27,9 +32,19 @@ namespace PhotoSort
     public void Sort()
     {
       SessionId = Guid.NewGuid().ToString("N");
+      SortTime = DateTime.Now;
       ProcessChildren(Options.Source);
+      LogFailureSummary();
     }
 
+    private void LogFailureSummary()
+    {
+      WriteLog("These files couldn't be processed:", true);
+      foreach (var item in FailedItems.OrderBy(x => x.Outcome).ThenBy(x => x.File.FullName))
+      {
+        WriteLog(item.GetSummaryMessage(), true);
+      }
+    }
     public void ProcessChildren(string sourceDir)
     {
       foreach (var dir in System.IO.Directory.EnumerateDirectories(sourceDir))
@@ -40,9 +55,15 @@ namespace PhotoSort
       foreach (var file in System.IO.Directory.EnumerateFiles(sourceDir))
       {
         var info = new FileInfo(file);
-        WriteLog($"{Options.Mode} '{file}'");
+        var result = new ProcessedItem(info);
 
-        if (SkipFile(info)) continue;
+        if (!ACCEPTED_EXTENSIONS.Contains(info.Extension, StringComparer.OrdinalIgnoreCase))
+        {
+          result.Outcome = SortOutcome.UnsupportedExtension;
+          FailedItems.Add(result);
+          WriteLog($"{Options.Mode} {result.GetLogMessage()}", true);
+          continue;
+        }
 
         // Get date from photo EXIF data
         var directories = ImageMetadataReader.ReadMetadata(file);
@@ -53,22 +74,28 @@ namespace PhotoSort
         var photoDate = ParseExifDate(exifDateTime);
         if (photoDate == null)
         {
-          WriteLog("... Skipped: No EXIF date", true);
+          result.Outcome = SortOutcome.NoExifDate;
+          FailedItems.Add(result);
+          WriteLog($"{Options.Mode} {result.GetLogMessage()}", true);
           continue;
         }
 
         if (photoDate < DateTime.Parse("1980-01-01"))
         {
-          WriteLog("... Skipped: File date too old", true);
+          result.Outcome = SortOutcome.TooOld;
+          FailedItems.Add(result);
+          WriteLog($"{Options.Mode} {result.GetLogMessage()}", true);
           continue;
         }
 
         var destinationYearMonth = EnsurePath(photoDate.Value);
         var destinationFile = Path.Combine(destinationYearMonth, info.Name);
-        WriteLog($" to '{destinationFile}'... ");
+        result.Destination = destinationFile;
         if (File.Exists(destinationFile))
         {
-          WriteLog("Skipped: already exists.", true);
+          result.Outcome = SortOutcome.AlreadyExists;
+          FailedItems.Add(result);
+          WriteLog($"{Options.Mode} {result.GetLogMessage()}", true);
         }
         else
         {
@@ -80,7 +107,7 @@ namespace PhotoSort
           {
             info.MoveTo(destinationFile);
           }
-          WriteLog("Done.", true);
+          WriteLog($"{Options.Mode} {result.GetLogMessage()}", true);
         }
       }
     }
@@ -104,19 +131,9 @@ namespace PhotoSort
       return DateTime.Parse($"{segments[0].Replace(":", "-")} {segments[1]}");
     }
 
-    public bool SkipFile(FileInfo info)
-    {
-      if (!ACCEPTED_EXTENSIONS.Contains(info.Extension, StringComparer.OrdinalIgnoreCase))
-      {
-        WriteLog($"... Skipped: Unsupported extension: {info.Extension}", true);
-        return true;
-      }
-      return false;
-    }
-
     public void WriteLog(string text, bool endLine = false)
     {
-      var logFile = Path.Combine(Options.Destination, $"log-{DateTime.Now.ToString("yyyyMMdd_hhmm")}-{SessionId}.log");
+      var logFile = Path.Combine(Options.Destination, $"log-{SortTime.ToString("yyyyMMdd_hhmm")}-{SessionId}.log");
       if (endLine)
       {
         Console.WriteLine(text);
@@ -133,6 +150,56 @@ namespace PhotoSort
           sw.Write(text);
         }
       }
+    }
+  }
+
+  public enum SortOutcome
+  {
+    Succeeded,
+    UnsupportedExtension,
+    NoExifDate,
+    TooOld,
+    AlreadyExists,
+  }
+
+  public class ProcessedItem
+  {
+    public FileInfo File { get; set; }
+    public SortOutcome Outcome { get; set; } = SortOutcome.Succeeded;
+    public string Destination { get; set; }
+
+    public ProcessedItem(FileInfo info)
+    {
+      File = info;
+    }
+
+    public string GetLogMessage()
+    {
+      var outcome = "";
+      switch (Outcome)
+      {
+        case SortOutcome.UnsupportedExtension:
+          outcome = $"Skipped: Unsupported extension: {File.Extension}";
+          break;
+        case SortOutcome.NoExifDate:
+          outcome = "Skipped: No EXIF date";
+          break;
+        case SortOutcome.TooOld:
+          outcome = "Skipped: File date too old";
+          break;
+        case SortOutcome.AlreadyExists:
+          outcome = "Skipped: already exists.";
+          break;
+        case SortOutcome.Succeeded:
+          outcome = "Done.";
+          break;
+      }
+      return $"'{File.FullName}' {(string.IsNullOrWhiteSpace(Destination) ? "" : $"to '{Destination}'")}... {outcome}";
+    }
+
+    public string GetSummaryMessage()
+    {
+      return $"{Outcome.ToString()}: {File.FullName}";
     }
   }
 }
