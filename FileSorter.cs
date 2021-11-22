@@ -19,8 +19,7 @@ namespace PhotoSort
     public string SessionId { get; private set; }
     public DateTime SortTime { get; private set; }
     private List<ProcessedItem> FailedItems = new List<ProcessedItem>(0);
-
-    // TODO: Track count of files found/successfully processed
+    private int ObservedFileCount = 0;
 
     public CommandLineOptions Options { get; set; }
 
@@ -31,10 +30,12 @@ namespace PhotoSort
 
     public void Sort()
     {
+      ObservedFileCount = 0;
       SessionId = Guid.NewGuid().ToString("N");
       SortTime = DateTime.Now;
       ProcessChildren(Options.Source);
       LogFailureSummary();
+      WriteLog($"Successfully processed {ObservedFileCount - FailedItems.Count} of {ObservedFileCount} files");
     }
 
     private void LogFailureSummary()
@@ -56,6 +57,7 @@ namespace PhotoSort
       {
         var info = new FileInfo(file);
         var result = new ProcessedItem(info);
+        ObservedFileCount++;
 
         if (!ACCEPTED_EXTENSIONS.Contains(info.Extension, StringComparer.OrdinalIgnoreCase))
         {
